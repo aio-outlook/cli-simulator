@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI Simulator</title> <!-- Title added here -->
+    <style>
+        body {
+            font-family: monospace;
+            background-color: #000;
+            color: #fff;
+            padding: 20px;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .cli-simulator-heading {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .cli-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            width: 100%;
+            height: 75vh; /* Set the height to 75% of the viewport height */
+            overflow-y: auto;
+            background-color: #000;
+            color: #fff;
+            position: relative;
+            box-sizing: border-box;
+        }
+        .input-line {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .prompt {
+            color: #00ff00;
+            margin-right: 10px;
+        }
+        .input-field {
+            background-color: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+            font-family: monospace;
+            font-size: inherit;
+            flex: 1;
+        }
+        .output-line {
+            display: flex;
+            align-items: center;
+            word-break: break-word; /* Ensure long lines break correctly */
+        }
+        .code-output {
+            background-color: #1e1e1e;
+            color: #dcdcdc;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre; /* Preserve whitespace formatting */
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #00ff00; /* Green */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin-left: 10px; /* Space between input field and loader */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .cli-container {
+                height: 75vh; /* Maintain 75% height on mobile as well */
+            }
+            .input-line {
+                padding: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="cli-simulator-heading">
+        CLI Simulator
+    </div>
+
+    <div class="cli-container" id="output">
+        <!-- Output from commands will be displayed here -->
+    </div>
+    <div class="input-line">
+        <span class="prompt">$</span>
+        <input type="text" id="commandInput" class="input-field" placeholder="Type your command...">
+        <div id="loader" class="loader"></div>
+    </div>
+
+    <script>
+        const outputDiv = document.getElementById('output');
+        const inputField = document.getElementById('commandInput');
+        const loader = document.getElementById('loader');
+
+        let commandHistory = []; // Array to store the last 20 commands
+        let historyIndex = -1; // Index to navigate through command history
+
+        // Event listener for handling Enter key press in input field
+        inputField.addEventListener('keypress', async function(event) {
+            if (event.key === 'Enter') {
+                const command = inputField.value.trim();
+                if (command !== '') {
+                    // Update the command history
+                    commandHistory = [command, ...commandHistory.slice(0, 19)];
+                    historyIndex = -1; // Reset the history index
+                    await executeCommand(command);
+                    inputField.value = '';
+                }
+            }
+        });
+
+        // Event listener for handling key up and key down press in input field
+        inputField.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowUp') {
+                // Navigate up in command history
+                if (commandHistory.length > 0) {
+                    historyIndex = Math.min(historyIndex + 1, commandHistory.length - 1);
+                    inputField.value = commandHistory[historyIndex];
+                }
+            } else if (event.key === 'ArrowDown') {
+                // Navigate down in command history
+                if (historyIndex > 0) {
+                    historyIndex -= 1;
+                    inputField.value = commandHistory[historyIndex];
+                } else {
+                    historyIndex = -1;
+                    inputField.value = '';
+                }
+            }
+        });
+
+        // Function to detect if a string is code-like
+        function isCodeLike(str) {
+            const codeIndicators = [
+                '{', '}', '(', ')', '=>', 'function', 'if', 'else', 'for', 'while', 'return', 'const', 'let', 'var'
+            ];
+            return codeIndicators.some(indicator => str.includes(indicator));
+        }
+
+        // Function to send command to server and display output
+        async function executeCommand(command) {
+            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+            ws.onopen = function() {
+                ws.send(command);
+                inputField.disabled = true; // Disable input field
+                loader.style.display = 'block'; // Show loader
+            };
+
+            ws.onmessage = function(event) {
+                const message = event.data;
+                const isCode = isCodeLike(message);
+                outputDiv.innerHTML += `<div class="output-line"><span class="prompt">$</span> ${command}</div>`;
+                if (isCode) {
+                    outputDiv.innerHTML += `<div class="code-output">${message}</div>`;
+                } else {
+                    outputDiv.innerHTML += `<div>${message.replace(/\n/g, '<br>')}</div>`;
+                }
+                outputDiv.scrollTop = outputDiv.scrollHeight; // Scroll to bottom
+                loader.style.display = 'none'; // Hide loader
+                inputField.disabled = false; // Enable input field
+                inputField.focus(); // Refocus input field
+            };
+
+            ws.onerror = function(event) {
+                console.error("WebSocket error:", event);
+                outputDiv.innerHTML += `<div>Error: Could not connect to server</div>`;
+                loader.style.display = 'none'; // Hide loader
+                inputField.disabled = false; // Enable input field
+            };
+
+            ws.onclose = function(event) {
+                console.log("WebSocket closed:", event);
+                loader.style.display = 'none'; // Hide loader
+                inputField.disabled = false; // Enable input field
+            };
+        }
+    </script>
+</body>
+</html>
